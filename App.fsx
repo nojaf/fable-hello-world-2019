@@ -22,7 +22,7 @@ let private getFromLocalStorage key =
     |> parseInt
 
 let private putInLocalStorage key value =
-    window.localStorage.setItem(key, sprintf  "%d" value)
+    window.localStorage.setItem(key, sprintf "%d" value)
 
 let private getClock() = bySelector<HTMLDivElement> ".clock"
 
@@ -55,11 +55,13 @@ match bySelector<HTMLButtonElement> "button", bySelector<HTMLInputElement> "inpu
 | Some button, Some input ->
     button.addEventListener("click", (fun _ ->
         parseInt input.value
-        |> Option.iter (fun v -> 
+        |> Option.iter (fun v ->
             putInLocalStorage TotalSeconds v
             putInLocalStorage CurrentSecond 0
             setInterval updateClock 1000
             |> putInLocalStorage IntervalKey
+            getClock()
+            |> Option.iter(fun clock -> clock.classList.remove [|"done"|])
         )
     ))
 | _ ->

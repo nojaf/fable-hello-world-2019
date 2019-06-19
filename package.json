@@ -9,7 +9,7 @@
     "fable-splitter": "^2.1.10"
   },
   "scripts": {
-    "postinstall": "paket generate-load-scripts -t fsx",
+    "postinstall": "paket restore & paket generate-load-scripts -t fsx",
     "compile": "fable-splitter App.fsx -o dist -w",
     "sync": "node server.js"
   }
