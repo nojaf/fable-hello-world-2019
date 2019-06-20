@@ -41,6 +41,13 @@ type FreeBuilder() =
     member this.ReturnFrom x = x
     member this.Zero() = Pure()
 
+let readValue key = Free(ReadValue(key, Pure))
+let writeValue key value = Free(WriteValue((key,value), Pure))
+let log entry = Free(Log(entry, Pure))
+let findElement selector = Free(FindElement(selector, Pure))
+
+let free = FreeBuilder()
+
 let [<Literal>] CurrentSecond = "CurrentSecond"
 let [<Literal>] TotalSeconds = "TotalSeconds"
 let [<Literal>] IntervalKey = "IntervalKey"
@@ -56,64 +63,62 @@ let private printSeconds secondes =
     sprintf "%02d:%02d" minutes remainingSeconds
 
 let onload onClick =
-    Free(FindElement("button", fun button ->
-        match button with
-        | Some button ->
-            Free(FindElement("input", fun input ->
-                match input with
-                | Some input ->
-                    printfn "%A" input
-                    button.addEventListener("click", onClick (fun () -> input.Value))
-                    |> Pure
-                | None ->
-                    Free(Log("input was not found", Pure))
-            ))
-        | None -> Free(Log("button was not found", Pure))
-    ))
+    free {
+        let! button = findElement "button"
+        let! input = findElement "input"
+        let attachHandler =
+            match button, input with
+            | Some button, Some input ->
+                button.addEventListener("click", onClick (fun () -> input.Value))
+                Pure()
+            | _ ->
+                log "input or button were not found."
+        do! attachHandler
+    }
 
 let onClick updateClock value : Program<unit> =
     let value = value()
     match parseInt value with
     | Some v ->
-        Free(WriteValue((TotalSeconds,v), fun() ->
-            Free(WriteValue((CurrentSecond,0), fun() ->
-                setInterval updateClock 1000
-                |> fun intervalKey -> Free(WriteValue((IntervalKey, intervalKey), Pure)))
-            ))
-        )
+        free {
+            do! writeValue TotalSeconds v
+            do! writeValue CurrentSecond 0
+            let intervalKey = setInterval updateClock 1000
+            do! writeValue IntervalKey intervalKey
+        }
     | None ->
-        Free(Log(sprintf "The total seconds %s was not a valid integer" value, Pure))
+        log (sprintf "The total seconds %s was not a valid integer" value)
 
 let onTick =
-    Free(ReadValue(TotalSeconds, fun totalSeconds ->
-        match totalSeconds with
-        | Some total ->
-            Free(ReadValue(CurrentSecond, fun currentSecond ->
-                match currentSecond with
-                | Some current ->
-                    let updatedCurrent = current + 1
-                    Free(FindElement(".clock", fun clock ->
-                        match clock with
-                        | Some clock ->
-                            clock.textContent <- (printSeconds updatedCurrent)
-                            Free(WriteValue((CurrentSecond, updatedCurrent), fun() -> 
-                                if updatedCurrent = total then
-                                    clock.classList.add [|"done"|]
-                                    Free(ReadValue(IntervalKey, fun intervalKey ->
-                                        Option.iter clearInterval intervalKey
-                                        Pure()
-                                    ))
-                                else
-                                    Pure()
-                            ))
-                        | None -> Free(Log("No clock found in the DOM", Pure))
-                        
-                    ))
-                | None ->
-                    Free(Log("Current second not found in store", Pure))
-            ))
-        | None -> Free(Log("Total seconds not found in store", Pure))
-    ))
+    let addSecond total current =
+        free {
+            let updatedCurrent = current + 1
+            let! clock = findElement ".clock"
+
+            match clock with
+            | Some clock ->
+                clock.textContent <- (printSeconds updatedCurrent)
+                do! writeValue CurrentSecond updatedCurrent
+
+                if updatedCurrent = total then
+                    clock.classList.add [|"done"|]
+                    let! intervalKey = readValue IntervalKey
+                    Option.iter clearInterval intervalKey
+
+            | None ->
+                do! log "Clock not found"
+        }
+
+    free {
+        let! totalSeconds = readValue TotalSeconds
+        let! currentSecond = readValue CurrentSecond
+        let processTick =
+            match totalSeconds, currentSecond with
+            | Some total, Some current -> addSecond total current
+            | _ -> log "current second or total second not found"
+
+        do! processTick
+    }
 
 let rec interpret programInstr =
     match programInstr with
@@ -138,7 +143,8 @@ let rec interpret programInstr =
         |> interpret
 
 let boostrap () =
-    onload (fun v _ -> onClick (fun () -> interpret onTick) v |> interpret)
+    let updateClock() = interpret onTick
+    onload (fun v _ -> onClick updateClock v |> interpret)
     |> interpret
 
 boostrap()
