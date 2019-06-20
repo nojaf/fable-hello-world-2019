@@ -76,8 +76,8 @@ let onload onClick =
         do! attachHandler
     }
 
-let onClick updateClock value : Program<unit> =
-    let value = value()
+let onClick updateClock getValue : Program<unit> =
+    let value = getValue()
     match parseInt value with
     | Some v ->
         free {
@@ -144,7 +144,7 @@ let rec interpret programInstr =
 
 let boostrap () =
     let updateClock() = interpret onTick
-    onload (fun v _ -> onClick updateClock v |> interpret)
-    |> interpret
+    let onClick value _ = interpret (onClick updateClock value)
+    interpret (onload onClick)
 
 boostrap()
